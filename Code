@@ -1,0 +1,85 @@
+#Question 1#
+import pandas as pd
+
+# Load your dataset into a pandas DataFrame
+# Replace 'your_dataset.csv' with the actual name of your dataset file
+df = pd.read_csv('/Users/dboessenecker/Downloads/cleaned_dataset.csv')
+
+# Filter out rows where exchange_time is equal to 0
+df_filtered = df[df['exchange_time'] != 0]
+
+# Group by fielder_id and calculate the average exchange_time
+grouped_data = df_filtered.groupby('fielder_id')['exchange_time'].mean().reset_index()
+
+# Sort the data by average_exchange_time in ascending order
+sorted_data = grouped_data.sort_values(by='exchange_time')
+
+# Get the top 5 fielder_ids with the quickest average exchange times
+top_5_fielders = sorted_data.head(5)
+
+print(top_5_fielders)
+
+#Question 2#
+
+df = pd.read_csv('/Users/dboessenecker/Downloads/cleaned_dataset.csv')
+
+# Filter rows where the throw bounced and the runner was safe
+filtered_df = df[(df['bounces'] == 1) & (df['out_y_n'] == 1)]
+
+# Group by team_id and count the number of errant throws for each team
+errant_throws_by_team = filtered_df.groupby('team_id').size().reset_index(name='errant_throws_count')
+
+# Plotting a bar chart
+plt.bar(errant_throws_by_team['team_id'], errant_throws_by_team['errant_throws_count'])
+plt.xlabel('Team ID')
+plt.ylabel('Errant Throws Count')
+plt.title('Errant Throws Count by Team')
+plt.xticks(errant_throws_by_team['team_id'], errant_throws_by_team['team_id'])
+plt.show()
+
+#Question 3#
+
+df = pd.read_csv('/Users/dboessenecker/Downloads/cleaned_dataset.csv')
+
+# Calculate the distance for each throw
+df['distance'] = ((df['receiver_pos_x'] - df['throw_pos_x'])**2 + (df['receiver_pos_y'] - df['throw_pos_y'])**2)**0.5
+
+# Filter throws within the 90th percentile of distance
+distance_threshold = df['distance'].quantile(0.9)
+filtered_df = df[df['distance'] >= distance_threshold]
+
+# Group by team_id and calculate the average exchange_time
+average_exchange_time = filtered_df.groupby('team_id')['exchange_time'].mean()
+
+# Group by team_id and find the throw with the best exchange_time
+best_team_average_exchange_time = average_exchange_time.idxmin()
+
+# Group by team_id and find the team with the largest variation in exchange_time
+team_variation = filtered_df.groupby('team_id')['exchange_time'].std().idxmax()
+
+print("Team with the best exchange_time:")
+print(best_team_average_exchange_time)
+
+print("\nTeam with the largest variation in exchange_time:")
+print(team_variation)
+
+#Question 4#
+
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy.stats import pearsonr
+
+df = pd.read_csv('/Users/dboessenecker/Downloads/cleaned_dataset.csv')
+
+# Calculate the Euclidean distance
+df['distance'] = ((df['receiver_pos_x'] - df['throw_pos_x'])**2 + (df['receiver_pos_y'] - df['throw_pos_y'])**2)**0.5
+
+# Filter throws less than 100 feet from first base
+filtered_df = df[df['distance'] < 100]
+
+# Create a scatter plot with regression line
+sns.regplot(x='throw_to_first_mph', y='distance', data=filtered_df, scatter_kws={'alpha':0.3})
+plt.xlabel('Throw Velocity (mph)')
+plt.ylabel('Throw Distance (feet)')
+plt.title('Correlation between Throw Velocity and Throw Distance (<100 feet from first base)')
