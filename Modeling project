@@ -1,0 +1,334 @@
+import pandas as pd
+
+# Cleaning and learning about the dataset
+file_path = '/Users/dboessenecker/Downloads/dataset_2024.csv'
+
+
+df = pd.read_csv(file_path)
+
+# Learn about the dataset
+print(df.info())
+
+# Convert missing values to 0
+df.fillna(0, inplace=True)
+
+# Create a new column 'throw_to_first_mph' for the magnitude of the velocity vector in miles per hour
+df['throw_to_first_mph'] = df.apply(lambda row: 
+    (row['throw_velo_x']**2 + row['throw_velo_y']**2 + row['throw_velo_z']**2)**0.5 * 0.681818, axis=1)
+
+# Create a new column 'bounces' based on the presence of values greater than 0 in bounce columns
+specified_columns_for_bounces = ['bounce_pos_x', 'bounce_pos_y', 'bounce_velo_x', 'bounce_velo_y', 'bounce_velo_z']
+df['bounces'] = df[specified_columns_for_bounces].apply(lambda row: 1 if (row > 0).any() else 0, axis=1)
+
+# Create a new column 'out_y_n' based on if 'batter result' is out or not
+df['out_y_n'] = df['batter_result'].apply(lambda x: 1 if 'out' in str(x).lower() else 0)
+
+# Create a new column 'throw_distance' based on the euclidean distance between thrower and receiver
+df['throw_distance'] = ((df['receiver_pos_x'] - df['throw_pos_x'])**2 + (df['receiver_pos_y'] - df['throw_pos_y'])**2)**0.5
+
+# Create a new column 'batter_distance_from_1B' based on the euclidean distance between batter's position and first base
+df['batter_distance_from_1B'] = ((df['batter_pos_x_at_throw'] - 0)**2 + (df['batter_pos_y_at_throw'] - 90)**2)**0.5
+
+# Save the cleaned dataset
+cleaned_file_path = '/Users/dboessenecker/Downloads/cleaned_dataset_1.csv'
+df.to_csv(cleaned_file_path, index=False)
+
+# Checking for outliers using boxplots. Learning more about the dataset particularly outliers
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy import stats
+
+column_names = ['exchange_time', 'throw_to_first_mph', 'throw_distance', 'batter_distance_from_1B']
+
+# Create subplots for each column
+fig, axes = plt.subplots(nrows=len(column_names), ncols=1, figsize=(10, 5 * len(column_names)))
+
+# Creating box plots for each column
+for i, column in enumerate(column_names):
+    axes[i].boxplot(df[column], vert=False)
+    axes[i].set_title(column)
+    axes[i].set_xlabel('Values')
+    
+    # Calculate mean, 25th percentile, and 75th percentile    
+    mean_value = df[column].mean()
+    percentile_25 = df[column].quantile(0.25)
+    percentile_75 = df[column].quantile(0.75)
+
+    print(f"\nStatistics for {column}:")
+    print(f"Mean: {mean_value}")
+    print(f"25th Percentile: {percentile_25}")
+    print(f"75th Percentile: {percentile_75}")
+
+    # Count all values below and including 25th percentile
+    below_25th_percentile_count = len(df[df[column] <= df[column].quantile(0.25)])
+    print(f"All values below and including 25th Percentile: {below_25th_percentile_count}")
+
+    # Count values between 25th and 75th percentile
+    between_25th_75th_percentile_count = len(df[(df[column] > df[column].quantile(0.25)) & (df[column] <= df[column].quantile(0.75))])
+    print(f"Values between 25th and 75th Percentile: {between_25th_75th_percentile_count}")
+
+    # Count all values 75th percentile and above
+    above_75th_percentile_count = len(df[df[column] >= df[column].quantile(0.75)])
+    print(f"All values 75th Percentile and above: {above_75th_percentile_count}")
+
+plt.tight_layout()
+plt.show()
+
+
+# run logistic regression model without outliers. Used z-score method first but ended up using IQR due to issues with application
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+
+# Specify the feature columns for which you want to remove outliers
+feature_columns = ['throw_to_first_mph', 'throw_distance', 'exchange_time', 'batter_distance_from_1B']
+
+# Calculate the Interquartile Range (IQR) for each feature column
+Q1 = df[feature_columns].quantile(0.25)
+Q3 = df[feature_columns].quantile(0.75)
+IQR = Q3 - Q1
+
+# Remove outliers based on IQR
+df_no_outliers = df[~((df[feature_columns] < (Q1 - 1.5 * IQR)) | (df[feature_columns] > (Q3 + 1.5 * IQR))).any(axis=1)]
+
+# Display basic information about the dataset after removing outliers
+print("Dataset Info After Removing Outliers:")
+print(df_no_outliers.info())
+
+# Assuming 'target_variable' is the name of your binary target variable column
+# You need to replace 'target_variable' with the actual name of your target variable column
+target_variable = 'out_y_n'
+
+# Assuming 'feature_columns' is the list of names of your feature columns
+# You need to replace it with the actual list of feature column names in your dataset
+feature_columns = ['throw_to_first_mph', 'throw_distance', 'exchange_time', 'batter_distance_from_1B']
+
+# Split the dataset into features (X) and the target variable (y)
+X = df_no_outliers[feature_columns]
+y = df_no_outliers[target_variable]
+
+# Split the dataset into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Initialize and train the logistic regression model
+model = LogisticRegression(max_iter=1000)
+model.fit(X_train, y_train)
+
+# Make predictions on the test set
+y_pred = model.predict(X_test)
+
+# Evaluate the model
+accuracy = accuracy_score(y_test, y_pred)
+print("Accuracy:", accuracy)
+print("Classification Report:\n", classification_report(y_test, y_pred))
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+
+# Examine coefficients
+coefficients = model.coef_
+feature_names = X.columns
+print("Coefficients:", coefficients)
+print("Feature Names:", feature_names)
+
+#testing for multicollinearity#
+
+!pip install statsmodels
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+# Calculate VIF for each independent variable
+def calculate_vif(data_frame):
+    vif_data = pd.DataFrame()
+    vif_data["Variable"] = data_frame.columns
+    vif_data["VIF"] = [variance_inflation_factor(data_frame.values, i) for i in range(data_frame.shape[1])]
+    return vif_data
+
+
+vif_df = calculate_vif(X_train)
+
+# Display VIF values for each variable
+print("VIF Values:")
+print(vif_df)
+
+#testing random forests model for better fit and ability to work with application
+
+
+# Specify the feature columns and target variable
+feature_columns = ['throw_deflected_by_receiver', 'throw_to_first_mph', 'bounces', 'throw_distance', 'exchange_time', 'batter_distance_from_1B']
+target_variable = 'out_y_n'
+
+# Split the dataset into features (X) and the target variable (y)
+X = df[feature_columns]
+y = df[target_variable]
+
+# Split the dataset into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Initialize and train the Random Forest classifier
+rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_model.fit(X_train, y_train)
+
+# Make predictions on the test set
+y_pred = rf_model.predict(X_test)
+
+# Evaluate the model
+accuracy = accuracy_score(y_test, y_pred)
+report = classification_report(y_test, y_pred)
+feature_importances = rf_model.feature_importances_
+for feature, importance in zip(feature_columns, feature_importances):
+    print(f"{feature}: {importance}")
+
+# Display the results
+print(f"Accuracy: {accuracy}")
+print("Classification Report:")
+print(report)
+
+
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+
+
+feature_columns = ['throw_deflected_by_receiver', 'throw_to_first_mph', 'bounces', 'throw_distance', 'exchange_time', 'batter_distance_from_1B']
+
+X = df[feature_columns]
+y = df['out_y_n']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_model.fit(X_train, y_train)
+
+# Create a Dash web application
+app = dash.Dash(__name__)
+
+# Define the layout of the app
+app.layout = html.Div([
+    html.H1("Out Prediction Tool (Random Forest)"),
+    html.Label("Enter Throw Deflected by Receiver:"),
+    dcc.Input(id='throw-deflected-input', type='number', value=0),
+    html.Label("Enter Throw to First Speed (mph):"),
+    dcc.Input(id='throw-speed-input', type='number', value=80),
+    html.Label("Enter Bounces:"),
+    dcc.Input(id='bounces-input', type='number', value=0),
+    html.Label("Enter Throw Distance:"),
+    dcc.Input(id='throw-distance-input', type='number', value=0),
+    html.Label("Enter Exchange Time:"),
+    dcc.Input(id='exchange-time-input', type='number', value=1),
+    html.Label("Enter Batter Distance from 1B:"),
+    dcc.Input(id='batter-distance-input', type='number', value=90),
+    html.Button(id='submit-button', n_clicks=0, children='Submit'),
+    html.Div(id='output-div')
+])
+
+# Define the callback to update the output based on user input
+@app.callback(
+    Output('output-div', 'children'),
+    [Input('submit-button', 'n_clicks')],
+    [dash.dependencies.State('throw-deflected-input', 'value'),
+     dash.dependencies.State('throw-speed-input', 'value'),
+     dash.dependencies.State('bounces-input', 'value'),
+     dash.dependencies.State('throw-distance-input', 'value'),
+     dash.dependencies.State('exchange-time-input', 'value'),
+     dash.dependencies.State('batter-distance-input', 'value')]
+)
+def update_output(n_clicks, throw_deflected, throw_speed, bounces, throw_distance, exchange_time, batter_distance):
+    # Use the model to make a prediction
+    prediction = rf_model.predict([[throw_deflected, throw_speed, bounces, throw_distance, exchange_time, batter_distance]])
+    
+    # Display the prediction
+    return f"Likelihood of getting out: {round(rf_model.predict_proba([[throw_deflected, throw_speed, bounces, throw_distance, exchange_time, batter_distance]])[0][1] * 100, 2)}%"
+
+# Run the app
+if __name__ == '__main__':
+    app.run_server(debug=True)
+
+
+#evaluating subset of infielders with the model creating datafram w/ averages over all throws in the dataset
+
+feature_columns = ['throw_deflected_by_receiver', 'throw_to_first_mph', 'bounces', 'throw_distance', 'exchange_time', 'batter_distance_from_1B']
+
+X = df[feature_columns]
+y = df['out_y_n']
+
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_model.fit(X_train, y_train)
+
+#creating likelihood of an out column for each row
+df['likelihood_of_out'] = rf_model.predict_proba(df[feature_columns])[:, 1]
+
+# Group the data by thrower_id and calculate the mean for likelihood of out, exhange time, and throw to first velo
+grouped_data = df.groupby('thrower_id').agg(
+    likelihood_of_out=('likelihood_of_out', 'mean'),
+    average_exchange_time=('exchange_time', 'mean'),
+    average_throw_to_first_mph=('throw_to_first_mph', 'mean')
+).reset_index()
+
+
+print(grouped_data)
+
+# creating a visual for the top ten players in each category, y-axis is exchange time, x-axis is throw to first velo, and
+# size of the data points is the likelihood of an out 
+
+import plotly.express as px
+
+# Sort the data
+grouped_data_sorted_mph = grouped_data.sort_values(by='average_throw_to_first_mph', ascending=False)
+grouped_data_sorted_time = grouped_data.sort_values(by='average_exchange_time', ascending=False)
+grouped_data_sorted_out = grouped_data.sort_values(by='likelihood_of_out', ascending=False)
+
+# Take the top 10 thrower_ids for each metric
+top_10_mph = grouped_data_sorted_mph.head(10)
+top_10_time = grouped_data_sorted_time.head(10)
+top_10_out = grouped_data_sorted_out.head(10)
+
+# Create a scatter plot for the top 10 in average_throw_to_first_mph
+fig_mph = px.scatter(
+    top_10_mph,
+    x='average_throw_to_first_mph',
+    y='average_exchange_time',
+    size='likelihood_of_out',
+    hover_data=['thrower_id'],
+    text=[f'<b>{thrower}</b>' for thrower in top_10_mph['thrower_id']],
+    title='Top 10 in Average Throw to First Speed',
+    labels={'average_exchange_time': 'Average Exchange Time', 'likelihood_of_out': 'Likelihood of Out', 'average_throw_to_first_mph': 'Average Throw to First Speed (mph)'},
+)
+
+
+
+# Create a scatter plot for the top 10 in average_exchange_time
+fig_time = px.scatter(
+    top_10_time,
+    x='average_throw_to_first_mph',
+    y='average_exchange_time',
+    size='likelihood_of_out',
+    hover_data=['thrower_id'],
+    text=[f'<b>{thrower}</b>' for thrower in top_10_time['thrower_id']],
+    title='Top 10 in Average Exchange Time',
+    labels={'average_exchange_time': 'Average Exchange Time', 'likelihood_of_out': 'Likelihood of Out', 'average_throw_to_first_mph': 'Average Throw to First Speed (mph)'},
+)
+
+
+
+# Create a scatter plot for the top 10 in likelihood_of_out
+fig_out = px.scatter(
+    top_10_out,
+    x='average_throw_to_first_mph',
+    y='average_exchange_time',
+    size='likelihood_of_out',
+    hover_data=['thrower_id'],
+    text=[f'<b>{thrower}</b>' for thrower in top_10_out['thrower_id']],
+    title='Top 10 in Likelihood of Out',
+    labels={'average_exchange_time': 'Average Exchange Time', 'likelihood_of_out': 'Likelihood of Out', 'average_throw_to_first_mph': 'Average Throw to First Speed (mph)'},
+)
+
+
+
+# Show the plots
+fig_mph.show()
+fig_time.show()
+fig_out.show()
+
